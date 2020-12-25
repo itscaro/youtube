@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -25,7 +24,7 @@ var infoCmd = &cobra.Command{
 	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
 	PreRunE: func(cmd *cobra.Command, args []string) error {
-		if !strings.Contains("|full|media|media-csv|", fmt.Sprintf("|%s|", infoCmdOpts.outputFormat)) {
+		if !strings.Contains("|full|media|media-split|media-csv|media-split-csv|", fmt.Sprintf("|%s|", infoCmdOpts.outputFormat)) {
 			return fmt.Errorf("output format %s is not valid", infoCmdOpts.outputFormat)
 		}
 		return nil
@@ -48,14 +47,19 @@ var infoCmd = &cobra.Command{
 					fmt.Printf("ERROR: %s - %s\n", videoURL, "no formats found")
 				}
 				continue
-			} else if len(codec) > 0 {
-				filterCodecs(video, codec)
+			}
+
+			if len(codec) > 0 {
+				video.FilterCodec(codec)
+			}
+			if len(quality) > 0 {
+				video.FilterQuality(quality)
 			}
 
 			data := buildFormats(video)
 
-			if infoCmdOpts.outputFormat == "media-csv" {
-				fmt.Printf("0,%s,%s\n", videoURL, video.Title)
+			if strings.HasSuffix(infoCmdOpts.outputFormat, "csv") {
+				fmt.Printf("-,%s,%s\n", videoURL, video.Title)
 				w := csv.NewWriter(os.Stdout)
 				for _, record := range data {
 					if err := w.Write(record); err != nil {
@@ -67,9 +71,7 @@ var infoCmd = &cobra.Command{
 					fmt.Printf("-1,%s,%s\n", videoURL, err)
 					continue
 				}
-			}
-
-			if infoCmdOpts.outputFormat == "full" || infoCmdOpts.outputFormat == "media" {
+			} else {
 				fmt.Println("Title:      ", video.Title)
 				if infoCmdOpts.outputFormat == "full" {
 					fmt.Println("Author:     ", video.Author)
@@ -79,7 +81,7 @@ var infoCmd = &cobra.Command{
 				}
 				table := tablewriter.NewWriter(os.Stdout)
 				table.SetAutoWrapText(false)
-				table.SetHeader([]string{"itag", "video quality", "audio quality", "size [MB]", "bitrate", "MimeType"})
+				table.SetHeader([]string{"itag", "fps", "video\nquality", "video\nquality\nlabel", "audio\nquality", "audio\n channels", "size [MB]", "bitrate", "sample\nrate", "MimeType"})
 				table.AppendBulk(data)
 				table.Render()
 			}
@@ -87,44 +89,143 @@ var infoCmd = &cobra.Command{
 	},
 }
 
-// filterCodecs filters out codec with strings.Contains and uses AND operator
-func filterCodecs(video *youtube.Video, codec []string) {
-	var formats youtube.FormatList
-VideoFormat:
-	for _, f := range video.Formats {
-		for _, c := range codec {
-			if !strings.Contains(f.MimeType, c) {
-				continue VideoFormat
-			}
-		}
-		formats = append(formats, f)
-	}
-	video.Formats = formats
-	sort.SliceStable(video.Formats, video.SortBitrateDesc)
-}
-
 func buildFormats(video *youtube.Video) (data [][]string) {
-	for _, format := range video.Formats {
-		bitrate := format.AverageBitrate
-		if bitrate == 0 {
-			// Some formats don't have the average bitrate
-			bitrate = format.Bitrate
+	if strings.HasPrefix(infoCmdOpts.outputFormat, "media-split") {
+		for _, format := range video.VideoAudioFormats {
+			bitrate := format.AverageBitrate
+			if bitrate == 0 {
+				// Some formats don't have the average bitrate
+				bitrate = format.Bitrate
+			}
+
+			size, _ := strconv.ParseInt(format.ContentLength, 10, 64)
+			if size == 0 {
+				// Some formats don't have this information
+				size = int64(float64(bitrate) * video.Duration.Seconds() / 8)
+			}
+
+			videoQuality := format.Quality
+			// If no FPS then it's audio stream
+			if format.FPS == 0 {
+				videoQuality = ""
+			}
+
+			data = append(data, []string{
+				strconv.Itoa(format.ItagNo),
+				strconv.Itoa(format.FPS),
+				videoQuality,
+				format.QualityLabel,
+				strings.ToLower(strings.TrimPrefix(format.AudioQuality, "AUDIO_QUALITY_")),
+				strconv.Itoa(format.AudioChannels),
+				fmt.Sprintf("%0.1f", float64(size)/1024/1024),
+				strconv.Itoa(bitrate),
+				format.AudioSampleRate,
+				format.MimeType,
+			})
 		}
 
-		size, _ := strconv.ParseInt(format.ContentLength, 10, 64)
-		if size == 0 {
-			// Some formats don't have this information
-			size = int64(float64(bitrate) * video.Duration.Seconds() / 8)
+		data = append(data, []string{"-", "-", "-", "-", "-", "-", "-", "-", "-", "-"})
+
+		for _, format := range video.VideoFormats {
+			bitrate := format.AverageBitrate
+			if bitrate == 0 {
+				// Some formats don't have the average bitrate
+				bitrate = format.Bitrate
+			}
+
+			size, _ := strconv.ParseInt(format.ContentLength, 10, 64)
+			if size == 0 {
+				// Some formats don't have this information
+				size = int64(float64(bitrate) * video.Duration.Seconds() / 8)
+			}
+
+			videoQuality := format.Quality
+			// If no FPS then it's audio stream
+			if format.FPS == 0 {
+				videoQuality = ""
+			}
+
+			data = append(data, []string{
+				strconv.Itoa(format.ItagNo),
+				strconv.Itoa(format.FPS),
+				videoQuality,
+				format.QualityLabel,
+				strings.ToLower(strings.TrimPrefix(format.AudioQuality, "AUDIO_QUALITY_")),
+				strconv.Itoa(format.AudioChannels),
+				fmt.Sprintf("%0.1f", float64(size)/1024/1024),
+				strconv.Itoa(bitrate),
+				format.AudioSampleRate,
+				format.MimeType,
+			})
 		}
 
-		data = append(data, []string{
-			strconv.Itoa(format.ItagNo),
-			format.QualityLabel,
-			strings.ToLower(strings.TrimPrefix(format.AudioQuality, "AUDIO_QUALITY_")),
-			fmt.Sprintf("%0.1f", float64(size)/1024/1024),
-			strconv.Itoa(bitrate),
-			format.MimeType,
-		})
+		data = append(data, []string{"-", "-", "-", "-", "-", "-", "-", "-", "-", "-"})
+
+		for _, format := range video.AudioFormats {
+			bitrate := format.AverageBitrate
+			if bitrate == 0 {
+				// Some formats don't have the average bitrate
+				bitrate = format.Bitrate
+			}
+
+			size, _ := strconv.ParseInt(format.ContentLength, 10, 64)
+			if size == 0 {
+				// Some formats don't have this information
+				size = int64(float64(bitrate) * video.Duration.Seconds() / 8)
+			}
+
+			videoQuality := format.Quality
+			// If no FPS then it's audio stream
+			if format.FPS == 0 {
+				videoQuality = ""
+			}
+
+			data = append(data, []string{
+				strconv.Itoa(format.ItagNo),
+				strconv.Itoa(format.FPS),
+				videoQuality,
+				format.QualityLabel,
+				strings.ToLower(strings.TrimPrefix(format.AudioQuality, "AUDIO_QUALITY_")),
+				strconv.Itoa(format.AudioChannels),
+				fmt.Sprintf("%0.1f", float64(size)/1024/1024),
+				strconv.Itoa(bitrate),
+				format.AudioSampleRate,
+				format.MimeType,
+			})
+		}
+	} else {
+		for _, format := range video.Formats {
+			bitrate := format.AverageBitrate
+			if bitrate == 0 {
+				// Some formats don't have the average bitrate
+				bitrate = format.Bitrate
+			}
+
+			size, _ := strconv.ParseInt(format.ContentLength, 10, 64)
+			if size == 0 {
+				// Some formats don't have this information
+				size = int64(float64(bitrate) * video.Duration.Seconds() / 8)
+			}
+
+			videoQuality := format.Quality
+			// If no FPS then it's audio stream
+			if format.FPS == 0 {
+				videoQuality = ""
+			}
+
+			data = append(data, []string{
+				strconv.Itoa(format.ItagNo),
+				strconv.Itoa(format.FPS),
+				videoQuality,
+				format.QualityLabel,
+				strings.ToLower(strings.TrimPrefix(format.AudioQuality, "AUDIO_QUALITY_")),
+				strconv.Itoa(format.AudioChannels),
+				fmt.Sprintf("%0.1f", float64(size)/1024/1024),
+				strconv.Itoa(bitrate),
+				format.AudioSampleRate,
+				format.MimeType,
+			})
+		}
 	}
 
 	return
@@ -135,4 +236,5 @@ func init() {
 
 	infoCmd.Flags().StringVarP(&infoCmdOpts.outputFormat, "output", "o", "full", "full, media, media-csv")
 	addCodecFlag(infoCmd.Flags())
+	addQualityArrayFlag(infoCmd.Flags())
 }

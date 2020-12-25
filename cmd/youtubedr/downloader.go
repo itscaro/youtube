@@ -18,12 +18,17 @@ import (
 var (
 	insecureSkipVerify bool     // skip TLS server validation
 	outputQuality      string   // itag number or quality string
+	quality            []string // itag number or quality or quality label string
 	codec              []string // codec
 	downloader         *ytdl.Downloader
 )
 
 func addQualityFlag(flagSet *pflag.FlagSet) {
 	flagSet.StringVarP(&outputQuality, "quality", "q", "", "The itag number or quality label (hd720, medium)")
+}
+
+func addQualityArrayFlag(flagSet *pflag.FlagSet) {
+	flagSet.StringArrayVarP(&quality, "quality", "q", []string{}, "The itag number or quality label (hd720, medium)")
 }
 
 func addCodecFlag(flagSet *pflag.FlagSet) {
@@ -71,7 +76,7 @@ func getVideoWithFormat(id string) (*youtube.Video, *youtube.Format, error) {
 	}
 
 	if len(codec) > 0 {
-		filterCodecs(video, codec)
+		video.FilterCodec(codec)
 	}
 	if len(video.Formats) == 0 {
 		return nil, nil, errors.New("no formats found")

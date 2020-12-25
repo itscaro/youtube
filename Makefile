@@ -15,6 +15,11 @@ help: Makefile
 build:
 	goreleaser --rm-dist
 
+.PHONY: build-windows
+build-windows: export GOOS=windows
+build-windows:
+	@go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o ./bin/youtubedr.exe ./cmd/youtubedr
+
 ## deps: Ensures fresh go.mod and go.sum
 .PHONY: deps
 deps:

@@ -8,19 +8,23 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Video struct {
-	ID              string
-	Title           string
-	Description     string
-	Author          string
-	Duration        time.Duration
-	Formats         FormatList
-	Thumbnails      Thumbnails
-	DASHManifestURL string // URI of the DASH manifest file
-	HLSManifestURL  string // URI of the HLS manifest file
+	ID                string
+	Title             string
+	Description       string
+	Author            string
+	Duration          time.Duration
+	Formats           FormatList
+	AudioFormats      FormatList
+	VideoFormats      FormatList
+	VideoAudioFormats FormatList
+	Thumbnails        Thumbnails
+	DASHManifestURL   string // URI of the DASH manifest file
+	HLSManifestURL    string // URI of the HLS manifest file
 }
 
 func (v *Video) parseVideoInfo(body []byte) error {
@@ -111,11 +115,22 @@ func (v *Video) extractDataFromPlayerResponse(prData playerResponseData) error {
 
 	// Assign Streams
 	v.Formats = append(prData.StreamingData.Formats, prData.StreamingData.AdaptiveFormats...)
+	for _, f := range v.Formats {
+		if strings.HasPrefix(f.MimeType, "video") {
+			if f.AudioChannels == 0 {
+				v.VideoFormats = append(v.VideoFormats, f)
+			} else {
+				v.VideoAudioFormats = append(v.VideoAudioFormats, f)
+			}
+		} else if strings.HasPrefix(f.MimeType, "audio") {
+			v.AudioFormats = append(v.AudioFormats, f)
+		}
+	}
 
 	if len(v.Formats) == 0 {
 		return errors.New("no formats found in the server's answer")
 	}
-	sort.SliceStable(v.Formats, v.SortBitrateDesc)
+	v.SortFormats()
 
 	v.HLSManifestURL = prData.StreamingData.HlsManifestURL
 	v.DASHManifestURL = prData.StreamingData.DashManifestURL
@@ -123,10 +138,90 @@ func (v *Video) extractDataFromPlayerResponse(prData playerResponseData) error {
 	return nil
 }
 
-func (v *Video) SortBitrateDesc(i int, j int) bool {
-	return v.Formats[i].Bitrate > v.Formats[j].Bitrate
+func (v *Video) FilterCodec(codec []string) {
+	v.Formats = v.Formats.FilterCodec(codec)
+	v.VideoAudioFormats = v.VideoAudioFormats.FilterCodec(codec)
+	v.AudioFormats = v.AudioFormats.FilterCodec(codec)
+	v.VideoFormats = v.VideoFormats.FilterCodec(codec)
+	v.SortFormats()
 }
 
-func (v *Video) SortBitrateAsc(i int, j int) bool {
-	return v.Formats[i].Bitrate < v.Formats[j].Bitrate
+func (v *Video) FilterQuality(quality []string) {
+	v.Formats = v.Formats.FilterQuality(quality)
+	v.VideoAudioFormats = v.VideoAudioFormats.FilterQuality(quality)
+	v.AudioFormats = v.AudioFormats.FilterQuality(quality)
+	v.VideoFormats = v.VideoFormats.FilterQuality(quality)
+	v.SortFormats()
+}
+
+// SortFormats sort all Formats fields
+func (v *Video) SortFormats() {
+	sort.SliceStable(v.Formats, func(i, j int) bool {
+		return SortFormat(i, j, v.Formats)
+	})
+	sort.SliceStable(v.VideoAudioFormats, func(i, j int) bool {
+		return SortFormat(i, j, v.VideoAudioFormats)
+	})
+	sort.SliceStable(v.AudioFormats, func(i, j int) bool {
+		return SortFormat(i, j, v.AudioFormats)
+	})
+	sort.SliceStable(v.VideoFormats, func(i, j int) bool {
+		return SortFormat(i, j, v.VideoFormats)
+	})
+}
+
+// SortFormat sorts video by resolution, FPS, codec (av01, vp9, avc1), bitrate
+// sorts audio by codec (mp4, opus), channels, bitrate, sample rate
+func SortFormat(i int, j int, formats FormatList) bool {
+	// Sort by Width
+	if formats[i].Width == formats[j].Width {
+		// Sort by FPS
+		if formats[i].FPS == formats[j].FPS {
+			if formats[i].FPS == 0 && formats[i].AudioChannels > 0 && formats[j].AudioChannels > 0 {
+				// Audio
+				// Sort by codec
+				codec := map[int]int{}
+				for _, index := range []int{i, j} {
+					if strings.Contains(formats[index].MimeType, "mp4") {
+						codec[index] = 1
+					} else if strings.Contains(formats[index].MimeType, "opus") {
+						codec[index] = 2
+					}
+				}
+				if codec[i] == codec[j] {
+					// Sort by Audio Channel
+					if formats[i].AudioChannels == formats[j].AudioChannels {
+						// Sort by Audio Bitrate
+						if formats[i].Bitrate == formats[j].Bitrate {
+							// Sort by Audio Sample Rate
+							return formats[i].AudioSampleRate > formats[j].AudioSampleRate
+						}
+						return formats[i].Bitrate > formats[j].Bitrate
+					}
+					return formats[i].AudioChannels > formats[j].AudioChannels
+				}
+				return codec[i] < codec[j]
+			} else {
+				// Video
+				// Sort by codec
+				codec := map[int]int{}
+				for _, index := range []int{i, j} {
+					if strings.Contains(formats[index].MimeType, "av01") {
+						codec[index] = 1
+					} else if strings.Contains(formats[index].MimeType, "vp9") {
+						codec[index] = 2
+					} else if strings.Contains(formats[index].MimeType, "avc1") {
+						codec[index] = 3
+					}
+				}
+				if codec[i] == codec[j] {
+					// Sort by Audio Bitrate
+					return formats[i].Bitrate > formats[j].Bitrate
+				}
+				return codec[i] < codec[j]
+			}
+		}
+		return formats[i].FPS > formats[j].FPS
+	}
+	return formats[i].Width > formats[j].Width
 }

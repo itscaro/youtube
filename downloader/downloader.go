@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/kkdai/youtube/v2"
 	"github.com/vbauerster/mpb/v5"
@@ -38,7 +39,10 @@ func (dl *Downloader) getOutputFile(v *youtube.Video, format *youtube.Format, ou
 
 // Download : Starting download video by arguments.
 func (dl *Downloader) Download(ctx context.Context, v *youtube.Video, format *youtube.Format, outputFile string) error {
-	dl.LogInfo("Video '%s' - Quality '%s' - Codec '%s'", v.Title, format.QualityLabel, format.MimeType)
+	dl.LogInfo("Video '%s'", v.Title)
+	dl.LogInfo("Video (Quality '%s' | FPS '%d' | Codec '%s') - Audio (Channels '%d')",
+		format.QualityLabel, format.FPS, format.MimeType, format.AudioChannels)
+
 	destFile, err := dl.getOutputFile(v, format, outputFile)
 	if err != nil {
 		return err
@@ -59,50 +63,67 @@ func (dl *Downloader) Download(ctx context.Context, v *youtube.Video, format *yo
 func (dl *Downloader) DownloadWithHighQuality(ctx context.Context, outputFile string, v *youtube.Video, quality string) error {
 	var videoFormat, audioFormat *youtube.Format
 
-	switch quality {
-	case "hdr2060":
-		videoFormat = v.Formats.FindByItag(401)
-		audioFormat = v.Formats.FindByItag(140)
-	case "hdr1080":
-		videoFormat = v.Formats.FindByItag(399)
-		audioFormat = v.Formats.FindByItag(140)
-	case "hd1080":
-		videoFormat = v.Formats.FindByItag(137)
-		audioFormat = v.Formats.FindByItag(140)
-	case "hdr720":
-		videoFormat = v.Formats.FindByItag(398)
-		audioFormat = v.Formats.FindByItag(140)
-	case "hd720":
-		videoFormat = v.Formats.FindByItag(136)
-		audioFormat = v.Formats.FindByItag(140)
-	default:
-		return fmt.Errorf("unknown quality: %s", quality)
+	if len(v.VideoFormats) == 0 {
+		return fmt.Errorf("no format video for this video")
+	}
+	if len(quality) == 0 {
+		videoFormat = &v.VideoFormats[0]
+	} else {
+		videoFormat = v.VideoFormats.FindByQuality(quality)
+		if videoFormat == nil {
+			return fmt.Errorf("no format video for '%s' found", quality)
+		}
 	}
 
-	if videoFormat == nil {
-		return fmt.Errorf("no format video/mp4 for %s found", quality)
+	// Find suitable audio stream
+	if strings.Contains(videoFormat.MimeType, "mp4") {
+		for _, itag := range []int{258, 256, 140} {
+			audioFormat = v.AudioFormats.FindByItag(itag)
+			if audioFormat != nil {
+				break
+			}
+		}
+	} else if strings.Contains(videoFormat.MimeType, "webm") {
+		for _, itag := range []int{251, 250, 249} {
+			audioFormat = v.AudioFormats.FindByItag(itag)
+			if audioFormat != nil {
+				break
+			}
+		}
+	} else {
+		return fmt.Errorf("unhandled mime-type %s", videoFormat.MimeType)
 	}
+
 	if audioFormat == nil {
-		return fmt.Errorf("no format audio/mp4 for %s found", quality)
+		return fmt.Errorf("no format audio for %s found", quality)
 	}
 
-	dl.LogInfo("Video '%s' - Quality '%s' - Video Codec '%s' - Audio Codec '%s'", v.Title, videoFormat.QualityLabel, videoFormat.MimeType, audioFormat.MimeType)
+	return dl.downloadVideoAudioStreamsAndJoin(ctx, outputFile, v, videoFormat, audioFormat)
+}
+
+func (dl *Downloader) downloadVideoAudioStreamsAndJoin(ctx context.Context, outputFile string, v *youtube.Video, videoFormat *youtube.Format, audioFormat *youtube.Format) error {
+	dl.LogInfo("Video (Quality '%s' | FPS '%d' | Codec '%s')",
+		videoFormat.QualityLabel, videoFormat.FPS, videoFormat.MimeType)
+	dl.LogInfo("Audio (Channels '%d' | Codec '%s')",
+		audioFormat.AudioChannels, audioFormat.MimeType)
 
 	destFile, err := dl.getOutputFile(v, videoFormat, outputFile)
 	if err != nil {
 		return err
 	}
-	outputDir := filepath.Dir(destFile)
+	if fileExists(destFile) {
+		return fmt.Errorf("⚠ SKIP: video %s - file %s exists", v.ID, destFile)
+	}
 
 	// Create temporary video file
-	videoFile, err := ioutil.TempFile(outputDir, "youtube_*.m4v")
+	videoFile, err := ioutil.TempFile(os.TempDir(), "youtube_*.m4v")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(videoFile.Name())
 
 	// Create temporary audio file
-	audioFile, err := ioutil.TempFile(outputDir, "youtube_*.m4a")
+	audioFile, err := ioutil.TempFile(os.TempDir(), "youtube_*.m4a")
 	if err != nil {
 		return err
 	}
@@ -171,4 +192,12 @@ func (dl *Downloader) videoDLWorker(ctx context.Context, out *os.File, video *yo
 
 	progress.Wait()
 	return nil
+}
+
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }

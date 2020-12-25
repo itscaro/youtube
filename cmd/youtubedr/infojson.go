@@ -33,7 +33,10 @@ var infoJSONCmd = &cobra.Command{
 			VideoFormats []VideoFormat
 		}
 		video, err := getDownloader().GetVideo(args[0])
-		exitOnError(err)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		thisVideoFormats := []VideoFormat{}
 		for _, format := range video.Formats {
 
