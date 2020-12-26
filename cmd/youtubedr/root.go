@@ -11,9 +11,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+var rootCmdOpts struct {
+	logLevel string
+}
 var (
 	cfgFile string
-	verbose bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -32,7 +34,8 @@ Use the HTTP_PROXY environment variable to set a HTTP or SOCSK5 proxy. The proxy
 func init() {
 	cobra.OnInitialize(initConfig)
 	cobra.OnInitialize(func() {
-		if !verbose {
+		getDownloader().SetLogLevel(rootCmdOpts.logLevel)
+		if rootCmdOpts.logLevel == "off" {
 			log.SetOutput(ioutil.Discard)
 		}
 	})
@@ -41,8 +44,8 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
+	rootCmd.PersistentFlags().StringVarP(&rootCmdOpts.logLevel, "loglevel", "l", "info", "Log level (off, info, debug, trace)")
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.youtubedr.yaml)")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", true, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&insecureSkipVerify, "insecure", false, "Skip TLS server certificate verification")
 }
 

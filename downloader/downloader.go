@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +50,7 @@ func (dl *Downloader) Download(ctx context.Context, v *youtube.Video, format *yo
 	}
 	defer out.Close()
 
-	dl.logf("Download to file=%s", destFile)
+	dl.LogInfo("Download to file=%s", destFile)
 	return dl.videoDLWorker(ctx, out, v, format)
 }
 
@@ -94,13 +93,13 @@ func (dl *Downloader) DownloadWithHighQuality(ctx context.Context, outputFile st
 	}
 	defer os.Remove(audioFile.Name())
 
-	dl.logf("Downloading video file...")
+	dl.LogInfo("Downloading video file...")
 	err = dl.videoDLWorker(ctx, videoFile, v, videoFormat)
 	if err != nil {
 		return err
 	}
 
-	dl.logf("Downloading audio file...")
+	dl.LogInfo("Downloading audio file...")
 	err = dl.videoDLWorker(ctx, audioFile, v, audioFormat)
 	if err != nil {
 		return err
@@ -116,7 +115,7 @@ func (dl *Downloader) DownloadWithHighQuality(ctx context.Context, outputFile st
 	)
 	ffmpegVersionCmd.Stderr = os.Stderr
 	ffmpegVersionCmd.Stdout = os.Stdout
-	dl.logf("merging video and audio to %s", destFile)
+	dl.LogInfo("merging video and audio to %s", destFile)
 
 	return ffmpegVersionCmd.Run()
 }
@@ -157,10 +156,4 @@ func (dl *Downloader) videoDLWorker(ctx context.Context, out *os.File, video *yo
 
 	progress.Wait()
 	return nil
-}
-
-func (dl *Downloader) logf(format string, v ...interface{}) {
-	if dl.Debug {
-		log.Printf(format, v...)
-	}
 }
