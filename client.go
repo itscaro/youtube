@@ -10,15 +10,46 @@ import (
 
 // Client offers methods to download video metadata and video streams.
 type Client struct {
-	// TODO implement loglevel instead
-	// Debug enables debugging output through log package
-	Debug bool
-	// DebugHTTPClient enables debugging output through log package
-	DebugHTTPClient bool
+	// LogLevel
+	logLevel string
 
 	// HTTPClient can be used to set a custom HTTP client.
 	// If not set, http.DefaultClient will be used
 	HTTPClient *http.Client
+}
+
+var logLevelMapping = map[string]int{
+	"off":       0,
+	"emergency": 1,
+	"critical":  2,
+	"error":     3,
+	"warning":   4,
+	"info":      5,
+	"debug":     6,
+	"trace":     7,
+}
+
+func (c *Client) LogLevel() string {
+	if len(c.logLevel) == 0 {
+		c.SetLogLevel("off")
+	}
+	return c.logLevel
+}
+
+func (c *Client) SetLogLevel(logLevel string) *Client {
+	if _, ok := logLevelMapping[logLevel]; !ok {
+		panic("invalid log level")
+	}
+	c.logLevel = logLevel
+	return c
+}
+
+func (c *Client) ShouldLog(logLevel string) bool {
+	if v, ok := logLevelMapping[logLevel]; !ok {
+		panic("invalid log level")
+	} else {
+		return v <= logLevelMapping[c.LogLevel()]
+	}
 }
 
 // GetVideo fetches video metadata
@@ -88,9 +119,7 @@ func (c *Client) httpGet(ctx context.Context, url string) (resp *http.Response, 
 		client = http.DefaultClient
 	}
 
-	if c.DebugHTTPClient {
-		log.Println("GET", url)
-	}
+	c.LogTrace("GET %s", url)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -119,4 +148,22 @@ func (c *Client) httpGetBodyBytes(ctx context.Context, url string) ([]byte, erro
 	defer resp.Body.Close()
 
 	return ioutil.ReadAll(resp.Body)
+}
+
+func (c *Client) LogInfo(format string, v ...interface{}) {
+	if c.ShouldLog("info") {
+		log.Printf(format, v...)
+	}
+}
+
+func (c *Client) LogDebug(format string, v ...interface{}) {
+	if c.ShouldLog("debug") {
+		log.Printf(format, v...)
+	}
+}
+
+func (c *Client) LogTrace(format string, v ...interface{}) {
+	if c.ShouldLog("trace") {
+		log.Printf(format, v...)
+	}
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +38,7 @@ func (dl *Downloader) getOutputFile(v *youtube.Video, format *youtube.Format, ou
 
 // Download : Starting download video by arguments.
 func (dl *Downloader) Download(ctx context.Context, v *youtube.Video, format *youtube.Format, outputFile string) error {
-	dl.logf("Video '%s' - Quality '%s' - Codec '%s'", v.Title, format.QualityLabel, format.MimeType)
+	dl.LogInfo("Video '%s' - Quality '%s' - Codec '%s'", v.Title, format.QualityLabel, format.MimeType)
 	destFile, err := dl.getOutputFile(v, format, outputFile)
 	if err != nil {
 		return err
@@ -52,7 +51,7 @@ func (dl *Downloader) Download(ctx context.Context, v *youtube.Video, format *yo
 	}
 	defer out.Close()
 
-	dl.logf("Download to file=%s", destFile)
+	dl.LogInfo("Download to file=%s", destFile)
 	return dl.videoDLWorker(ctx, out, v, format)
 }
 
@@ -87,7 +86,7 @@ func (dl *Downloader) DownloadWithHighQuality(ctx context.Context, outputFile st
 		return fmt.Errorf("no format audio/mp4 for %s found", quality)
 	}
 
-	dl.logf("Video '%s' - Quality '%s' - Video Codec '%s' - Audio Codec '%s'", v.Title, videoFormat.QualityLabel, videoFormat.MimeType, audioFormat.MimeType)
+	dl.LogInfo("Video '%s' - Quality '%s' - Video Codec '%s' - Audio Codec '%s'", v.Title, videoFormat.QualityLabel, videoFormat.MimeType, audioFormat.MimeType)
 
 	destFile, err := dl.getOutputFile(v, videoFormat, outputFile)
 	if err != nil {
@@ -109,13 +108,13 @@ func (dl *Downloader) DownloadWithHighQuality(ctx context.Context, outputFile st
 	}
 	defer os.Remove(audioFile.Name())
 
-	dl.logf("Downloading video file...")
+	dl.LogInfo("Downloading video file...")
 	err = dl.videoDLWorker(ctx, videoFile, v, videoFormat)
 	if err != nil {
 		return err
 	}
 
-	dl.logf("Downloading audio file...")
+	dl.LogInfo("Downloading audio file...")
 	err = dl.videoDLWorker(ctx, audioFile, v, audioFormat)
 	if err != nil {
 		return err
@@ -131,7 +130,7 @@ func (dl *Downloader) DownloadWithHighQuality(ctx context.Context, outputFile st
 	)
 	ffmpegVersionCmd.Stderr = os.Stderr
 	ffmpegVersionCmd.Stdout = os.Stdout
-	dl.logf("merging video and audio to %s", destFile)
+	dl.LogInfo("merging video and audio to %s", destFile)
 
 	return ffmpegVersionCmd.Run()
 }
@@ -172,10 +171,4 @@ func (dl *Downloader) videoDLWorker(ctx context.Context, out *os.File, video *yo
 
 	progress.Wait()
 	return nil
-}
-
-func (dl *Downloader) logf(format string, v ...interface{}) {
-	if dl.Debug {
-		log.Printf(format, v...)
-	}
 }
