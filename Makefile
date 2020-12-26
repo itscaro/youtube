@@ -12,9 +12,11 @@ endif
 
 GOFLAGS += -trimpath
 
-LDFLAGS += -X $(PKG)/version.version=$(VERSION)
-LDFLAGS += -X $(PKG)/version.commit=$(GITSHA)
-LDFLAGS += -X $(PKG)/version.buildTime=$(BUILDTIME)
+PKG ?= main
+
+LDFLAGS += -X $(PKG).version=$(VERSION)
+LDFLAGS += -X $(PKG).commit=$(GITSHA)
+LDFLAGS += -X $(PKG).buildTime=$(BUILDTIME)
 
 ## help: Show makefile commands
 .PHONY: help
